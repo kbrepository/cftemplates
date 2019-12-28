@@ -1,0 +1,301 @@
+
+# This Template will deploy the network infrastructure which includes a pair of private and public subnets, route tables, Internet Gateway,
+# Nat gateway and VPC endpoint.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: This Template will deploy the network infrastructure(VPC) which includes a pair of private and public subnets, route tables, Internet Gateway, Nat gateway and VPC endpoint.
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - Label: 
+          default: "Region and Tag configuration."
+        Parameters:
+          - RegionName
+          - Tag
+      - Label:
+          default: "VPC configuration."
+        Parameters:
+          - VPCCIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+          - SecurityGroupName
+      - Label:
+          default: "Specify Tags for Subnets."
+        Parameters:
+          - PubSubTag1
+          - PubSubTag2
+          - PriSubTag1
+          - PriSubTag2
+
+Parameters: 
+  PubSubTag1:
+    Description: 'Specify Tag for Public Subnet 1.'
+    Type: String
+    Default: 'Public-Subnet1'
+  PubSubTag2:
+    Description: 'Specify Tag for Public Subnet 2.'
+    Type: String
+    Default: 'Public-Subnet2'
+  PriSubTag1:
+    Description: 'Specify Tag for Private Subnet 1.'
+    Type: String
+    Default: 'Private-Subnet1'
+  PriSubTag2:
+    Description: 'Specify Tag for Private Subnet 2.'
+    Type: String
+    Default: 'Private-Subnet2'
+  Tag:
+    Description: 'Specify Tag prefix for AWS Resources.'
+    Type: String 
+    Default: 'Test'
+  VPCCIDR:
+    Description: 'Specify CIDR of VPC. '
+    Type: String
+    Default: '10.110.20.0/22'
+  PublicSubnet1CIDR:
+    Description: 'Please enter the IP range (CIDR notation) for the public subnet 1 in the Availability Zone.'
+    Type: String
+    Default: '10.110.20.0/24'
+  PublicSubnet2CIDR:
+    Description: 'Please enter the IP range (CIDR notation) for the public subnet 2 in the Availability Zone.'
+    Type: String
+    Default: '10.110.22.0/24'
+  PrivateSubnet1CIDR:
+    Description: 'Please enter the IP range (CIDR notation) for the private subnet 1 in the Availability Zone.'
+    Type: String
+    Default: '10.110.21.0/24'
+  PrivateSubnet2CIDR:
+    Description: 'Please enter the IP range (CIDR notation) for the private subnet 2 in the Availability Zone.'
+    Type: String
+    Default: '10.110.23.0/24'
+
+  RegionName:
+    Description: 'Specify region name For ex., "ap-south-1". '
+    Type: String
+
+  # TagNGW:
+  #   Description: 'Specify for nat gateway.'
+  #   Type: String
+  
+  SecurityGroupName:
+    Description: 'Specify Name for Security Group.'
+    Type: String
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      # CidrBlock: 10.120.20.0/22
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref Tag, vpc]]
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join [ "", [ !Ref RegionName,a]]
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, !Ref PubSubTag1]]
+  
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join [ "", [ !Ref RegionName,b]]
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, !Ref PubSubTag2]]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join [ "", [ !Ref RegionName, a]]
+      # AvailabilityZone: us-west-2a
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      # CidrBlock: 10.120.21.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, !Ref PriSubTag1]]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Join [ "", [ !Ref RegionName, b]]
+      # AvailabilityZone: us-west-2b
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      # CidrBlock: 10.120.23.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, !Ref PriSubTag2]]
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, IGW]]
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  PublicRouteTable:
+    DependsOn: AttachGateway
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, PublicRT ]]
+
+  PrivateRouteTable:
+    DependsOn: AttachGateway
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, PrivateRT ]]
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+  PublicRouteAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+  PublicRouteAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+  PrivateRTAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+  PrivateRTAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+  vpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: "*"
+          Action: "*"
+          Resource: "*"
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTable
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref VPC
+    DependsOn: [ 'PublicRouteTable', 'PrivateRouteTable', 'VPC']
+  
+  NatElasticIpA: #creating Elastic ip
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+
+  NatGatewayA: #creating nat gateway
+    DependsOn: ['PublicSubnetA']
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - NatElasticIpA
+          - AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref Tag, NGW ]]
+
+  NatGatewayRouteA: #attaching NGW to private route table
+    DependsOn: PrivateRouteTable
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGatewayA
+      RouteTableId: !Ref PrivateRouteTable
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: !Join ["-", [!Ref Tag, !Ref SecurityGroupName]]
+      GroupDescription: !Join ["-", [!Ref Tag, !Ref SecurityGroupName]]
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPC
+Outputs:
+  publicSubnetID:
+    Description: 'Id of public subnet'
+    Value: !Ref PublicSubnetA
+    Export: 
+      Name: !Sub '${Tag}-publicsubnet1'
+  publicSubnetID2:
+    Description: 'Id of public subnet2'
+    Value: !Ref PublicSubnetB
+    Export: 
+      Name: !Sub '${Tag}-publicsubnet2'
+  privateSubnetID:
+    Description: 'Id of public subnet2'
+    Value: !Ref PrivateSubnetA
+    Export: 
+      Name: !Sub '${Tag}-privatesubnet1'
+  privateSubnetID2:
+    Description: 'Id of public subnet2'
+    Value: !Ref PrivateSubnetB
+    Export: 
+      Name: !Sub '${Tag}-privatesubnet2'
+  privateRouteTableID:
+    Description: 'Id of private route table'
+    Value: !Ref PrivateRouteTable
+    Export:
+      Name: !Sub '${Tag}-RouteTableID'
+  vpcID:
+    Description: 'Id of VPC'
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${Tag}-vpcid'
+  endpoint:
+    Description: 'Id of VPC Endpoint'
+    Value: !Ref vpcEndpoint
+    Export:
+      Name: !Sub '${Tag}-vpcEndpoint'
+  securitygroup:
+    Description: 'Id of Security Group.'
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${Tag}-sg'
