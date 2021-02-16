@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation Template to deploy an EC2 instance and then install ADDS
+Parameters: 
+  # Client: 
+  #   Type: String
+  #   Description: Summation of client name - to allow same pattern to be used across clients
+  #   Default: Nivlesh Chandra
+  Hostname: 
+    Type: String
+    Description: Hostname(Computer name) - maximum 15 characters 
+    MaxLength: '15'    
+  OS: 
+    Type: String
+    Description: OS Version
+    Default: WindowsServer2016
+
+  InstanceSize: 
+    Type: String
+    Description: Instance Size
+    Default: t2.micro
+    AllowedValues:
+      - "t2.micro" 
+      - "t2.small"
+      - "t2.medium"
+      - "t2.large"
+  DomainDNSName:
+    Type: String
+    Description: Fully Qualified Domain Name
+    Default: example.local
+  DomainNetBiosName:
+    Type: String
+    Description: NETBIOS Domain Name
+    Default: mydomain
+  DomainMode:
+    Type: String
+    Description: Domain Mode
+    Default: Win2016
+  ForestMode:
+    Type: String
+    Description: Domain Mode
+    Default: Win2016
+  SafeModeAdministratorPassword:
+    MinLength: '8'
+    NoEcho: 'true'
+    Type: String
+    Description: SafeModeAdministrator Password - used when creating ADDS
+  Environment: 
+    Type: String
+    Description: Specific Environment - leveraged for AD group creation as well as OU location for server objects
+    AllowedValues:
+      - private1 
+      - private2    
+  AvailabilityZone:
+    Type: String
+    Description: Default AZ
+    AllowedValues: 
+      - us-west-2a
+      - us-west-2b
+    Default: us-west-2a
+  KeyPair: 
+    Type: String
+    Description: KeyPair Name
+    Default: testKey
+
+  S3BucketName:
+    Default: demo-scripts
+    Description: S3 bucket for boot artifacts
+    Type: String
+Mappings:
+#Encrypted AMIs
+  AMIMap:
+    WindowsServer2016:
+      "ImageId": "ami-xxx"
+  SubnetMap: 
+    us-west-2a:
+      private1: "subnet-xxxx"
+      private2: "subnet-xxxx"
+
+#Resources
+Resources:
+  Profile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref HostRole
+      Path: /
+      InstanceProfileName: !Join
+        - ''
+        - - 'instance-profile-'
+          - !Ref S3BucketName
+  HostRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Join
+        - ''
+        - - 'role-s3-read-'
+          - !Ref S3BucketName
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 's3:GetObject'
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - !Ref S3BucketName
+                    - '/*'
+                Effect: Allow
+          PolicyName: s3-policy-read
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Effect: Allow
+        Version: 2012-10-17    
+  Instance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      'AWS::CloudFormation::Authentication':
+        S3AccessCreds:
+          type: S3
+          buckets:
+            - !Ref S3BucketName
+          roleName: !Ref HostRole
+      'AWS::CloudFormation::Init':
+        configSets: 
+          config:
+            - get-files 
+            - configure-instance
+        get-files:
+          files:
+            'c:\s3-downloads\scripts\Add-WindowsComponents.ps1':
+              source: https://icertis-demo-scripts.s3-us-west-2.amazonaws.com/AddWindowsComponents.ps1
+              authentication: S3AccessCreds
+            'c:\s3-downloads\scripts\Configure-ADForest.ps1':
+              source: https://icertis-demo-scripts.s3-us-west-2.amazonaws.com/configureAD.ps1
+              authentication: S3AccessCreds
+        configure-instance:
+          commands:
+            1-set-powershell-execution-policy:
+              command: >-
+                powershell.exe -Command "Set-ExecutionPolicy UnRestricted -Force"
+              waitAfterCompletion: '0'
+            2-rename-computer:
+              command: !Join
+                - ''
+                - - >-
+                  -  powershell.exe -Command "Rename-Computer -Restart -NewName "
+                  -  !Ref Hostname
+              waitAfterCompletion: forever  
+            3-install-windows-components:
+              command: >-
+                powershell.exe -Command "c:\s3-downloads\scripts\Add-WindowsComponents.ps1"
+              waitAfterCompletion: '0'
+            4-install-ADForest:
+              command: !Join
+                - ''
+                - - >-
+                  - powershell.exe -Command "c:\s3-downloads\scripts\Configure-ADForest.ps1 -DomainName '
+                  - !Ref DomainDNSName
+                  - ''' -DomainNetBiosName '''
+                  - !Ref DomainNetBiosName
+                  - ''' -DomainMode '''
+                  - !Ref DomainMode
+                  - ''' -ForestMode '''
+                  - !Ref ForestMode 
+                  - ''' -SafeModeAdministratorPassword ''' 
+                  - !Ref SafeModeAdministratorPassword
+                  - '''"'
+              waitAfterCompletion: forever
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: !Sub "${AvailabilityZone}"
+      InstanceInitiatedShutdownBehavior: stop
+      IamInstanceProfile: !Ref Profile
+      ImageId: !FindInMap [ AMIMap, !Ref OS, ImageId ]
+      InstanceType: !Sub "${InstanceSize}"
+      KeyName: !Sub "${KeyPair}"
+      UserData: !Base64
+        'Fn::Join': 
+          - ''
+          - - "<powershell>\n"
+            - "cfn-init.exe "
+            - " --stack "
+            - "Ref": "AWS::StackId"
+            - " --resource Instance"
+            - " --region "
+            - "Ref": "AWS::Region"
+            - " --configsets config"
+            - " -v \n"
+            - "cfn-signal.exe  "
+            - " ---exit-code 0"
+            - " --region "
+            - "Ref": "AWS::Region"
+            - " --resource Instance" 
+            - " --stack "
+            - "Ref": "AWS::StackName"
+            - "\n"           
+            - "</powershell>\n"
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        # - Key: Application
+        #   Value: !Sub "${Application}"
+        - Key: Name
+          Value: !Sub "${Hostname}"
+        # - Key: Owner
+        #   Value: !Sub "${Owner}"
+        - Key: OS
+          Value: !Sub "${OS}"
+        # - Key: Project
+        #   Value: !Sub "${Project}"
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !FindInMap [SubnetMap, !Ref AvailabilityZone, !Ref Environment]
+          GroupSet:
+          - sg-xxxx
+Outputs:
+  InstanceId:
+    Description: 'InstanceId'
+    Value: !Ref Instance
+    Export:
+      Name: !Sub '${Hostname}-${Environment}-InstanceId'
+  InstancePrivateIP:
+    Description: 'InstancePrivateIP'
+    Value: !GetAtt Instance.PrivateIp
+    Export:
+      Name: !Sub '${Hostname}-${Environment}-InstancePrivateIP'
