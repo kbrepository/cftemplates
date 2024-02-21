@@ -1,0 +1,88 @@
+## Prerequisite for SES: Domain should be hosted in Route53 service.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Stack to create SNS, SES, Cognito resources
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: SNS Service Parameters.
+      Parameters:
+      - TopicName
+      - Endpoint
+    - Label:
+        default: SES Service Parameters.
+      Parameters:
+      - DomainIdentity
+    - Label:
+        default: Cognito Parameters.
+      Parameters: 
+      - UserPoolDomainName 
+Parameters:
+  TopicName:
+    Type: String
+    Description: specify name for SNS topic.
+    Default: Test-Topic
+  Endpoint:
+    Type: String
+    Description: Specify the email address that will receive notifications.
+    Default: test@example.com
+  DomainIdentity:
+    Type: String
+    Description: Specify email address/domain for DKIM verification (e.g., user@example.com or example.com).
+    Default: aexample.com
+  UserPoolDomainName:
+    Type: String
+    Description: Specify email address/domain
+    Default: my-test-user-pool-domain
+
+Resources:  
+  ## SNS Topic
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref TopicName
+  MySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref Endpoint
+      Protocol: email
+      TopicArn: !Ref SNSTopic
+
+  ## SES Resources  
+  MyDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainIdentity
+
+  ## AWS Cognito Resources 
+  UserPool: 
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        UnusedAccountValidityDays: 7 
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient    
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false       
+  UserPoolDomain: 
+    Type: AWS::Cognito::UserPoolDomain 
+    Properties:
+      UserPoolId: !Ref UserPool 
+      Domain: !Ref UserPoolDomainName
+      # CustomDomainConfig: 
+      #   CertificateArn: !Ref CertificateArn
+          
+Outputs:
+  SNSTopicARN:
+    Value: !Ref SNSTopic 
+  SESIdenity:
+    Value: !Ref MyDomainIdentity
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient 
+  UserPoolDomain:
+    Value: !GetAtt UserPoolDomain.CloudFrontDistribution
